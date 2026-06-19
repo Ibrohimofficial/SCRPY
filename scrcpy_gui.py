@@ -206,7 +206,7 @@ class ScrcpyApp(tk.Tk):
         ).pack(anchor="w", pady=(2, 0))
 
         # ---- 1-savol: Ulanish usuli ----
-        card1 = self._make_card("1-qadam: Ulanish usulini tanlang")
+        self.connection_cards_frame, card1 = self._make_card("1-qadam: Ulanish usulini tanlang")
         row = tk.Frame(card1, bg=CARD_COLOR)
         row.pack(fill="x", pady=(8, 0))
 
@@ -220,13 +220,11 @@ class ScrcpyApp(tk.Tk):
         )
 
         # ---- 2-savol: IP manzil (faqat Wi-Fi tanlanganda ko'rinadi) ----
-        self.ip_card = self._make_card("2-qadam: Telefon IP manzili")
-        self.ip_card_inner = tk.Frame(self.ip_card, bg=CARD_COLOR)
-        self.ip_card_inner.pack(fill="x", pady=(6, 0))
+        self.ip_card_outer, self.ip_card_inner = self._make_card("2-qadam: Telefon IP manzili")
 
         tk.Label(
             self.ip_card_inner,
-            text="Sozlamalar → Wi-Fi → ulangan tarmoq → IP manzil",
+            text="Sozlamalar → Wi-Fi → ulangan tarmoq → IP manzil (masalan: 192.168.1.25)",
             bg=CARD_COLOR, fg=SUBTEXT_COLOR, font=(FONT_NAME, 9)
         ).pack(anchor="w")
 
@@ -238,7 +236,6 @@ class ScrcpyApp(tk.Tk):
             relief="flat", width=28
         )
         self.ip_entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 8))
-        self.ip_entry.insert(0, "192.168.1.")
 
         pair_btn = tk.Button(
             ip_row, text="Topish", command=self.find_wifi_devices,
@@ -248,10 +245,10 @@ class ScrcpyApp(tk.Tk):
         pair_btn.pack(side="left")
 
         # boshida yashirilgan - faqat wifi tanlanganda chiqadi
-        self.ip_card.pack_forget()
+        self.ip_card_outer.pack_forget()
 
         # ---- Qo'shimcha sozlamalar (oddiy checkboxlar) ----
-        card3 = self._make_card("Qo'shimcha sozlamalar (ixtiyoriy)")
+        _, card3 = self._make_card("Qo'shimcha sozlamalar (ixtiyoriy)")
         opts = tk.Frame(card3, bg=CARD_COLOR)
         opts.pack(fill="x", pady=(4, 0))
 
@@ -288,7 +285,7 @@ class ScrcpyApp(tk.Tk):
             inner_pad, text=title, bg=CARD_COLOR, fg=TEXT_COLOR,
             font=(FONT_NAME, 12, "bold")
         ).pack(anchor="w")
-        return inner_pad
+        return card, inner_pad
 
     def _radio_card(self, parent, title, subtitle, mode_value, side):
         frame = tk.Frame(parent, bg="#33354a", cursor="hand2")
@@ -335,9 +332,9 @@ class ScrcpyApp(tk.Tk):
             frame._sub_lbl.configure(bg=bg, fg="#e3e1ff" if active else SUBTEXT_COLOR)
 
         if mode == "wifi":
-            self.ip_card.pack(fill="x", padx=28, pady=8, after=self.usb_btn.master.master)
+            self.ip_card_outer.pack(fill="x", padx=28, pady=8, after=self.connection_cards_frame)
         else:
-            self.ip_card.pack_forget()
+            self.ip_card_outer.pack_forget()
 
     # ---------- Asosiy mantiq ----------
     def set_status(self, text, color=SUBTEXT_COLOR):
