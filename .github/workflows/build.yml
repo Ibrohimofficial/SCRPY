@@ -1,0 +1,44 @@
+name: Build ScrcpyConnect Installer
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Repository kodini olish
+        uses: actions/checkout@v4
+
+      - name: Python o'rnatish
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: PyInstaller o'rnatish
+        run: pip install pyinstaller
+
+      - name: .exe faylni yig'ish (PyInstaller)
+        run: pyinstaller scrcpy_gui.spec
+
+      - name: Inno Setup o'rnatish
+        run: choco install innosetup -y
+
+      - name: Setup.exe yaratish (Inno Setup)
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+
+      - name: Tayyor fayllarni saqlash (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScrcpyConnect-Setup
+          path: installer_output\ScrcpyConnect-Setup.exe
+
+      - name: Standalone .exe faylni ham saqlash
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScrcpyConnect-exe-only
+          path: dist\ScrcpyConnect.exe
