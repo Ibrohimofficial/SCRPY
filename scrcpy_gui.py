@@ -10,7 +10,7 @@ Kod yozish, terminal ochish kerak emas - hammasi tugmalar orqali.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, font as tkfont
 import subprocess
 import threading
 import os
@@ -19,6 +19,7 @@ import re
 import json
 import zipfile
 import urllib.request
+import webbrowser
 
 # ====== UMUMIY SOZLAMALAR ======
 def get_app_dir():
@@ -50,7 +51,12 @@ TEXT_COLOR = "#f1f1f6"
 SUBTEXT_COLOR = "#9a9ab0"
 SUCCESS_COLOR = "#4caf82"
 ERROR_COLOR = "#e15c5c"
+LINK_COLOR = "#7c9cff"
 FONT_NAME = "Segoe UI"
+
+# ---- Ishlab chiquvchi ma'lumotlari ----
+STUDIO_NAME = "Ajib Studio"
+STUDIO_URL = "https://ajibstudio.uz/"
 
 
 # =========================================================
@@ -146,13 +152,31 @@ def get_pc_hostname():
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Ekran Ulagich - Android va iPhone/iPad")
-        self.geometry("600x720")
-        self.minsize(600, 720)
+        self.title("Ajib Ekran Ulagich - Android va iPhone/iPad")
+        self.geometry("600x760")
+        self.minsize(600, 760)
         self.configure(bg=BG_COLOR)
         self.resizable(False, False)
 
+        self._set_app_icon()
         self._build_tabs()
+
+    def _set_app_icon(self):
+        """Ilova ikonini o'rnatadi. PyInstaller bilan yig'ilganda fayl
+        vaqtinchalik papkaga (_MEIPASS) chiqariladi, oddiy holatda skript yonida bo'ladi."""
+        try:
+            # Mumkin bo'lgan joylarni tekshiramiz
+            candidates = []
+            if hasattr(sys, "_MEIPASS"):
+                candidates.append(os.path.join(sys._MEIPASS, "app_icon.ico"))
+            candidates.append(os.path.join(APP_DIR, "app_icon.ico"))
+
+            for icon_path in candidates:
+                if os.path.isfile(icon_path):
+                    self.iconbitmap(icon_path)
+                    return
+        except Exception:
+            pass  # ikon topilmasa, standart ikon ishlatiladi
 
     def _build_tabs(self):
         style = ttk.Style(self)
@@ -171,6 +195,35 @@ class MainApp(tk.Tk):
             foreground=[("selected", "white")],
         )
 
+        # ---- Pastki footer: ishlab chiquvchi yozuvi (ikkala tabda ham ko'rinadi) ----
+        footer = tk.Frame(self, bg=BG_COLOR)
+        footer.pack(side="bottom", fill="x", pady=(4, 8))
+
+        credit_frame = tk.Frame(footer, bg=BG_COLOR)
+        credit_frame.pack()
+
+        tk.Label(
+            credit_frame, text="Ushbu dastur ", bg=BG_COLOR, fg=SUBTEXT_COLOR,
+            font=(FONT_NAME, 9)
+        ).pack(side="left")
+
+        link_font = tkfont.Font(family=FONT_NAME, size=9, underline=True)
+        self.studio_link = tk.Label(
+            credit_frame, text=STUDIO_NAME, bg=BG_COLOR, fg=LINK_COLOR,
+            font=link_font, cursor="hand2"
+        )
+        self.studio_link.pack(side="left")
+        self.studio_link.bind("<Button-1>", lambda e: self._open_studio_link())
+        # Sichqoncha ustiga kelganda rangini o'zgartirish (hover effekti)
+        self.studio_link.bind("<Enter>", lambda e: self.studio_link.configure(fg="#a9c0ff"))
+        self.studio_link.bind("<Leave>", lambda e: self.studio_link.configure(fg=LINK_COLOR))
+
+        tk.Label(
+            credit_frame, text=" jamoasi tomonidan ishlab chiqildi",
+            bg=BG_COLOR, fg=SUBTEXT_COLOR, font=(FONT_NAME, 9)
+        ).pack(side="left")
+
+        # ---- Notebook (tablar) - qolgan joyni egallaydi ----
         notebook = ttk.Notebook(self, style="Custom.TNotebook")
         notebook.pack(fill="both", expand=True)
 
@@ -182,6 +235,12 @@ class MainApp(tk.Tk):
 
         self.android_tab = AndroidTab(android_frame, self)
         self.ios_tab = IOSTab(ios_frame, self)
+
+    def _open_studio_link(self):
+        try:
+            webbrowser.open(STUDIO_URL)
+        except Exception:
+            pass
 
 
 # =========================================================
