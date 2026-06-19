@@ -5,7 +5,7 @@ a = Analysis(
     ['scrcpy_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('app_icon.ico', '.')],
     hiddenimports=['tkinter', 'socket', 'json'],
     hookspath=[],
     hooksconfig={},
@@ -34,5 +34,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='app_icon.ico' if False else None,
+    icon='app_icon.ico',
 )
