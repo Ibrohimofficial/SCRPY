@@ -1,11 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec fayli — scrcpy_gui.py ni bitta .exe ga aylantiradi.
 
+import os
+# Ikon fayli mavjud bo'lsa ishlatamiz, bo'lmasa build baribir davom etadi.
+_icon = 'app_icon.ico' if os.path.isfile('app_icon.ico') else None
+
 a = Analysis(
     ['scrcpy_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('app_icon.ico', '.')],
+    datas=[],
     hiddenimports=['tkinter', 'socket', 'json'],
     hookspath=[],
     hooksconfig={},
@@ -34,5 +38,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='app_icon.ico',
+    icon=_icon,
 )
