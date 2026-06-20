@@ -355,8 +355,9 @@ class AndroidTab:
 
         tk.Label(
             self.ip_card_inner,
-            text="Sozlamalar → Wi-Fi → ulangan tarmoq → IP manzil (masalan: 192.168.1.25)",
-            bg=CARD_COLOR, fg=SUBTEXT_COLOR, font=(FONT_NAME, 9)
+            text="Telefonda: Sozlamalar → Wi-Fi → ulangan tarmoq → IP manzil (masalan: 192.168.1.25)",
+            bg=CARD_COLOR, fg=SUBTEXT_COLOR, font=(FONT_NAME, 9),
+            anchor="w", justify="left", wraplength=520
         ).pack(anchor="w")
 
         ip_row = tk.Frame(self.ip_card_inner, bg=CARD_COLOR)
@@ -367,6 +368,29 @@ class AndroidTab:
             relief="flat", width=28
         )
         self.ip_entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 8))
+
+        # Wi-Fi ulanish uchun muhim yo'riqnoma
+        tk.Label(
+            self.ip_card_inner,
+            text=(
+                "⚠️  Birinchi marta Wi-Fi orqali ulash uchun:\n"
+                "1) Telefonni USB kabel bilan kompyuterga ulang (debugging yoqilgan holda)\n"
+                "2) Pastdagi \"USB→Wi-Fi tayyorlash\" tugmasini bosing\n"
+                "3) Kabelni uzib, IP manzilni kiritib \"ULASH\" ni bosing\n"
+                "(Android 11+ da \"Wireless debugging\" yoqilgan bo'lsa, to'g'ridan-to'g'ri ulanadi)"
+            ),
+            bg=CARD_COLOR, fg=SUBTEXT_COLOR, font=(FONT_NAME, 8),
+            anchor="w", justify="left", wraplength=520
+        ).pack(anchor="w", pady=(8, 0))
+
+        # USB→Wi-Fi tayyorlash tugmasi (tcpip rejimini yoqadi)
+        self.tcpip_btn = tk.Button(
+            self.ip_card_inner, text="🔧  USB→Wi-Fi tayyorlash (kabel ulangan holda)",
+            command=self._prepare_wifi_from_usb,
+            bg="#3a3c52", fg=TEXT_COLOR, activebackground="#4a4d68",
+            relief="flat", font=(FONT_NAME, 9), cursor="hand2", padx=10, pady=6
+        )
+        self.tcpip_btn.pack(anchor="w", pady=(8, 0))
 
         self.ip_card_outer.pack_forget()
 
@@ -509,9 +533,95 @@ class AndroidTab:
                 ERROR_COLOR))
             return
 
+        # Qurilma serialini ajratib olamiz. USB qurilma odatda IP:PORT formatida
+        # EMAS (oddiy seriya raqami). Agar bir nechta qurilma bo'lsa (masalan
+        # eski Wi-Fi ulanish qolgan bo'lsa), USB qurilmani tanlaymiz.
+        usb_serials = [l.split()[0] for l in devices if ":" not in l.split()[0]]
+        serial = usb_serials[0] if usb_serials else devices[0].split()[0]
+
         self.root.after(0, lambda: self.set_status(
             "Qurilma topildi ✓  Scrcpy ishga tushmoqda...", SUCCESS_COLOR))
-        self._launch_scrcpy()
+        self._launch_scrcpy(serial=serial)
+
+    def _prepare_wifi_from_usb(self):
+        """USB orqali ulangan telefonni Wi-Fi (tcpip) rejimiga o'tkazadi va
+        IP manzilini avtomatik aniqlab, maydonga yozadi."""
+        self.tcpip_btn.configure(state="disabled")
+        self.set_status("USB qurilma tekshirilmoqda...", SUBTEXT_COLOR)
+        threading.Thread(target=self._prepare_wifi_worker, daemon=True).start()
+
+    def _prepare_wifi_worker(self):
+        try:
+            run_hidden([ADB_EXE, "start-server"], timeout=10)
+            # USB qurilma bor-yo'qligini tekshiramiz
+            code, out, err = run_hidden([ADB_EXE, "devices"], timeout=10)
+            lines = [l.strip() for l in out.splitlines()
+                     if l.strip() and "List of devices" not in l]
+            usb_devices = [l.split()[0] for l in lines
+                           if l.endswith("device") and ":" not in l.split()[0]]
+
+            if not usb_devices:
+                self.root.after(0, lambda: self.set_status(
+                    "USB qurilma topilmadi. Avval telefonni USB kabel bilan ulang "
+                    "(USB debugging yoqilgan va 'Allow' bosilgan bo'lsin).", ERROR_COLOR))
+                return
+
+            usb_serial = usb_devices[0]
+
+            # IP manzilni telefonning o'zidan aniqlaymiz
+            self.root.after(0, lambda: self.set_status(
+                "Telefon IP manzili aniqlanmoqda...", SUBTEXT_COLOR))
+            ip = self._detect_device_ip(usb_serial)
+
+            # tcpip rejimini yoqamiz (5555 port)
+            self.root.after(0, lambda: self.set_status(
+                "Wi-Fi rejimi yoqilmoqda...", SUBTEXT_COLOR))
+            run_hidden([ADB_EXE, "-s", usb_serial, "tcpip", "5555"], timeout=12)
+            import time
+            time.sleep(2)
+
+            if ip:
+                # IP ni maydonga yozamiz
+                self.root.after(0, lambda: self.ip_value.set(ip))
+                self.root.after(0, lambda: self.set_status(
+                    f"Tayyor! IP manzil aniqlandi: {ip}\n"
+                    "Endi USB kabelni uzib, \"🚀 ULASH\" tugmasini bosing.",
+                    SUCCESS_COLOR))
+            else:
+                self.root.after(0, lambda: self.set_status(
+                    "Wi-Fi rejimi yoqildi, lekin IP manzilni avtomatik aniqlab bo'lmadi.\n"
+                    "Telefon Sozlamalar → Wi-Fi dan IP manzilni qo'lda kiriting, "
+                    "USB kabelni uzib, \"🚀 ULASH\" ni bosing.", SUBTEXT_COLOR))
+        except Exception as e:
+            self.root.after(0, lambda: self.set_status(f"Xato: {e}", ERROR_COLOR))
+        finally:
+            self.root.after(0, lambda: self.tcpip_btn.configure(state="normal"))
+
+    def _detect_device_ip(self, serial):
+        """Telefonning Wi-Fi IP manzilini adb orqali aniqlaydi."""
+        # Usul 1: ip route orqali (eng ishonchli)
+        code, out, err = run_hidden(
+            [ADB_EXE, "-s", serial, "shell", "ip", "route"], timeout=10)
+        for line in out.splitlines():
+            # masalan: "192.168.1.0/24 dev wlan0 ... src 192.168.1.25"
+            if "wlan" in line and "src" in line:
+                parts = line.split()
+                if "src" in parts:
+                    idx = parts.index("src")
+                    if idx + 1 < len(parts):
+                        return parts[idx + 1]
+
+        # Usul 2: ifconfig wlan0 orqali
+        code, out, err = run_hidden(
+            [ADB_EXE, "-s", serial, "shell", "ifconfig", "wlan0"], timeout=10)
+        m = re.search(r"inet addr:(\d+\.\d+\.\d+\.\d+)", out)
+        if m:
+            return m.group(1)
+        m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", out)
+        if m:
+            return m.group(1)
+
+        return None
 
     def _connect_wifi(self):
         ip_raw = self.ip_value.get().strip()
@@ -522,23 +632,66 @@ class AndroidTab:
                 ERROR_COLOR))
             return
 
+        # 1) ADB serverini ishga tushiramiz (birinchi ulanishda kerak bo'ladi)
+        self.root.after(0, lambda: self.set_status("ADB tayyorlanmoqda...", SUBTEXT_COLOR))
+        run_hidden([ADB_EXE, "start-server"], timeout=10)
+
+        # 2) Ulanamiz. Ba'zida birinchi urinish "offline" bo'ladi, shuning uchun
+        #    2 marta urinib ko'ramiz.
         self.root.after(0, lambda: self.set_status(f"{addr} ga ulanmoqda...", SUBTEXT_COLOR))
-        code, out, err = run_hidden([ADB_EXE, "connect", addr], timeout=12)
-        full_out = (out + " " + err).lower()
+        connected = False
+        last_output = ""
+        for attempt in range(2):
+            code, out, err = run_hidden([ADB_EXE, "connect", addr], timeout=12)
+            last_output = (out + " " + err).strip()
+            full_out = last_output.lower()
+            if "connected" in full_out and "cannot" not in full_out and "failed" not in full_out:
+                connected = True
+                break
+            import time
+            time.sleep(1.5)
 
-        if "connected" in full_out or "already connected" in full_out:
+        if not connected:
             self.root.after(0, lambda: self.set_status(
-                f"Wi-Fi orqali ulandi ✓ ({addr})  Scrcpy ishga tushmoqda...", SUCCESS_COLOR))
-            self._launch_scrcpy()
-        else:
-            self.root.after(0, lambda: self.set_status(
-                f"Ulanmadi: {out or err}\n\n"
-                "Tekshiring: 1) Telefon va kompyuter bir xil Wi-Fi tarmoqdami  "
-                "2) Telefonda 'Wireless debugging' yoqilganmi  3) IP manzil to'g'rimi.",
+                f"Ulanmadi: {last_output}\n\n"
+                "Tekshiring:\n"
+                "1) Telefon va kompyuter BIR XIL Wi-Fi tarmoqda ekanligini\n"
+                "2) Telefonda 'Wireless debugging' (yoki 'USB debugging') yoqilganligini\n"
+                "3) IP manzil to'g'riligini\n\n"
+                "Eslatma: Yangi Android (11+) da avval telefonni USB orqali bir marta "
+                "ulab, pastdagi maslahatni o'qing.",
                 ERROR_COLOR))
+            return
 
-    def _launch_scrcpy(self):
+        # 3) Ulanish muvaffaqiyatli - qurilma haqiqatan 'device' holatida ekanligini tekshiramiz
+        import time
+        time.sleep(1)
+        code, out, err = run_hidden([ADB_EXE, "devices"], timeout=10)
+        device_online = False
+        for line in out.splitlines():
+            line = line.strip()
+            if addr in line and line.endswith("device"):
+                device_online = True
+                break
+
+        if not device_online:
+            # "offline" bo'lsa, bir marta qayta ulanishga harakat qilamiz
+            run_hidden([ADB_EXE, "disconnect", addr], timeout=8)
+            time.sleep(1)
+            run_hidden([ADB_EXE, "connect", addr], timeout=12)
+            time.sleep(1.5)
+
+        self.root.after(0, lambda: self.set_status(
+            f"Wi-Fi orqali ulandi ✓ ({addr})  Scrcpy ishga tushmoqda...", SUCCESS_COLOR))
+        # Scrcpy ga ANIQ shu qurilmani ko'rsatamiz (-s bilan), aks holda u
+        # boshqa qurilmaga ulanishi yoki chalkashishi mumkin.
+        self._launch_scrcpy(serial=addr)
+
+    def _launch_scrcpy(self, serial=None):
         cmd = [SCRCPY_EXE]
+        # Aniq qurilma ko'rsatilgan bo'lsa (Wi-Fi yoki bir nechta qurilma holatida)
+        if serial:
+            cmd += ["-s", serial]
         if self.extra_flags["stay_awake"].get():
             cmd.append("--stay-awake")
         if self.extra_flags["fullscreen"].get():
