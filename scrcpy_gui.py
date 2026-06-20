@@ -653,6 +653,15 @@ class IOSTab:
         self.low_lag.trace_add("write", lambda *a: self._on_settings_changed())
         self.quality.trace_add("write", lambda *a: self._on_settings_changed())
 
+        # Kichik eslatma
+        tk.Label(
+            settings_card,
+            text="ℹ️  Sozlama o'zgarganda, iPhone/iPad'da AirPlay'ni qaytadan ulang "
+                 "(yangi sozlama shunda qo'llanadi).",
+            bg=CARD_COLOR, fg=SUBTEXT_COLOR, font=(FONT_NAME, 8),
+            anchor="w", justify="left", wraplength=520
+        ).pack(anchor="w", pady=(8, 0))
+
         # ---- Asosiy tugma ----
         self.toggle_btn = tk.Button(
             p, text="📡  AIRPLAY QABUL QILISHNI BOSHLASH",
@@ -742,19 +751,59 @@ class IOSTab:
             return False
 
     def _on_settings_changed(self):
-        """Sozlama o'zgarganda - faylga yozamiz va agar ishlab tursa, restart qilamiz."""
+        """Sozlama o'zgarganda - faylga yozamiz va agar ishlab tursa, qayta ishga tushiramiz."""
         self._write_arguments_file()
         if self.is_running:
-            self.set_status("Sozlama o'zgardi, qayta ishga tushirilmoqda...", SUBTEXT_COLOR)
+            self.set_status(
+                "Sozlama saqlandi. Qo'llanmoqda — iPhone/iPad'da AirPlay'ni qaytadan "
+                "ulashingiz kerak bo'lishi mumkin (Control Center → Screen Mirroring).",
+                SUBTEXT_COLOR)
             threading.Thread(target=self._restart_airplay, daemon=True).start()
+        else:
+            self.set_status(
+                "Sozlama saqlandi. AirPlay'ni boshlaganingizda qo'llanadi.",
+                SUCCESS_COLOR)
+
+    def _launch_airplay_exe(self):
+        """uxplay-windows ni ishga tushiradi. Agar yo'l .lnk yorliq bo'lsa yoki
+        oddiy launch ishlamasa, Windows 'start' buyrug'i orqali ochadi."""
+        try:
+            if self.airplay_exe.lower().endswith(".lnk"):
+                # .lnk yorliqni explorer orqali ochamiz
+                os.startfile(self.airplay_exe)
+            else:
+                launch_detached([self.airplay_exe], cwd=os.path.dirname(self.airplay_exe))
+        except Exception:
+            # Zaxira: os.startfile har qanday holatda ishlashga harakat qiladi
+            try:
+                os.startfile(self.airplay_exe)
+            except Exception:
+                pass
 
     def _restart_airplay(self):
-        """AirPlay'ni yangi sozlamalar bilan qayta ishga tushiradi."""
+        """AirPlay serverini yangi sozlamalar bilan to'liq qayta ishga tushiradi.
+        uxplay-windows tray ilovasi arguments.txt ni faqat o'zi boshlanganda
+        o'qiydi, shuning uchun butun jarayonni qayta ishga tushiramiz."""
+        # Sozlama faylini yana bir bor yozib qo'yamiz (kafolat uchun)
+        self._write_arguments_file()
         kill_process("uxplay-windows.exe")
         kill_process("uxplay.exe")
         import time
-        time.sleep(1.5)
-        self._start_airplay()
+        # uxplay-windows to'liq yopilishini kutamiz
+        time.sleep(3)
+        # Endi qaytadan ishga tushiramiz - u arguments.txt ni qayta o'qiydi
+        try:
+            self._launch_airplay_exe()
+            # uxplay-windows ichki uxplay.exe ni 3 soniyadan keyin ishga tushiradi,
+            # shuning uchun biroz ko'proq kutamiz
+            time.sleep(5)
+            self.root.after(0, self._refresh_running_state)
+            self.root.after(0, lambda: self.set_status(
+                "Yangi sozlamalar bilan tayyor! iPhone/iPad'da Control Center → "
+                f"Screen Mirroring → \"{get_pc_hostname()}\" ni qaytadan tanlang.",
+                SUCCESS_COLOR))
+        except Exception as e:
+            self.root.after(0, lambda: self.set_status(f"Qayta ishga tushmadi: {e}", ERROR_COLOR))
 
     def set_status(self, text, color=SUBTEXT_COLOR):
         self.status_text.set(text)
@@ -976,9 +1025,9 @@ class IOSTab:
 
             self.root.after(0, lambda: self.set_status(
                 "AirPlay ishga tushirilmoqda...", SUBTEXT_COLOR))
-            launch_detached([self.airplay_exe], cwd=os.path.dirname(self.airplay_exe))
+            self._launch_airplay_exe()
             import time
-            time.sleep(2)
+            time.sleep(3)
             self.root.after(0, self._refresh_running_state)
             self.root.after(0, lambda: self.set_status(
                 f"Tayyor! iPhone/iPad'da Control Center → Screen Mirroring → "
