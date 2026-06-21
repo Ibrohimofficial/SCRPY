@@ -154,12 +154,28 @@ class MainApp(tk.Tk):
         super().__init__()
         self.title("Ajib Ekran Ulagich - Android va iPhone/iPad")
         self.geometry("600x820")
-        self.minsize(600, 820)
+        self.minsize(400, 400)  # kichraytirish mumkin (Telegram/Chrome kabi)
         self.configure(bg=BG_COLOR)
-        self.resizable(False, False)
+        self.resizable(True, True)  # erkin kattalashtirish/kichraytirish
 
         self._set_app_icon()
         self._build_tabs()
+
+        # F11 - to'liq ekran (fullscreen) almashtirish, Esc - chiqish
+        self._is_fullscreen = False
+        self.bind("<F11>", self._toggle_fullscreen)
+        self.bind("<Escape>", self._exit_fullscreen)
+
+    def _toggle_fullscreen(self, event=None):
+        self._is_fullscreen = not self._is_fullscreen
+        self.attributes("-fullscreen", self._is_fullscreen)
+        return "break"
+
+    def _exit_fullscreen(self, event=None):
+        if self._is_fullscreen:
+            self._is_fullscreen = False
+            self.attributes("-fullscreen", False)
+        return "break"
 
     def _set_app_icon(self):
         """Ilova ikonini o'rnatadi. PyInstaller bilan yig'ilganda fayl
@@ -195,6 +211,14 @@ class MainApp(tk.Tk):
             foreground=[("selected", "white")],
         )
 
+        # Scrollbar stilini qoramtir mavzuga moslaymiz
+        style.configure(
+            "Vertical.TScrollbar",
+            background=CARD_COLOR, troughcolor=BG_COLOR,
+            bordercolor=BG_COLOR, arrowcolor=SUBTEXT_COLOR,
+            relief="flat"
+        )
+
         # ---- Pastki footer: ishlab chiquvchi yozuvi (ikkala tabda ham ko'rinadi) ----
         footer = tk.Frame(self, bg=BG_COLOR)
         footer.pack(side="bottom", fill="x", pady=(4, 8))
@@ -227,14 +251,69 @@ class MainApp(tk.Tk):
         notebook = ttk.Notebook(self, style="Custom.TNotebook")
         notebook.pack(fill="both", expand=True)
 
-        android_frame = tk.Frame(notebook, bg=BG_COLOR)
-        ios_frame = tk.Frame(notebook, bg=BG_COLOR)
+        android_outer = tk.Frame(notebook, bg=BG_COLOR)
+        ios_outer = tk.Frame(notebook, bg=BG_COLOR)
 
-        notebook.add(android_frame, text="🤖  Android")
-        notebook.add(ios_frame, text="🍎  iPhone / iPad")
+        notebook.add(android_outer, text="🤖  Android")
+        notebook.add(ios_outer, text="🍎  iPhone / iPad")
+
+        # Har bir tab ichiga scroll qilinadigan frame yaratamiz - shunda oyna
+        # kichrayganda kontent sig'masa, scroll orqali ko'rinadi.
+        android_frame = self._make_scrollable(android_outer)
+        ios_frame = self._make_scrollable(ios_outer)
 
         self.android_tab = AndroidTab(android_frame, self)
         self.ios_tab = IOSTab(ios_frame, self)
+
+    def _make_scrollable(self, parent):
+        """parent ichida vertikal scroll qilinadigan frame yaratadi va qaytaradi.
+        Kontent shu qaytarilgan frame'ga joylanadi."""
+        canvas = tk.Canvas(parent, bg=BG_COLOR, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG_COLOR)
+
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        def on_inner_configure(event):
+            # Scroll hududini kontent o'lchamiga moslaymiz
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def on_canvas_configure(event):
+            # Ichki frame kengligini canvas kengligiga tenglashtiramiz
+            canvas.itemconfig(inner_id, width=event.width)
+
+        inner.bind("<Configure>", on_inner_configure)
+        canvas.bind("<Configure>", on_canvas_configure)
+
+        # Sichqoncha g'ildiragi bilan scroll qilish
+        def on_mousewheel(event):
+            # Windows va boshqa platformalar uchun
+            if event.delta:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif event.num == 4:
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                canvas.yview_scroll(1, "units")
+
+        def bind_wheel(event):
+            canvas.bind_all("<MouseWheel>", on_mousewheel)
+            canvas.bind_all("<Button-4>", on_mousewheel)
+            canvas.bind_all("<Button-5>", on_mousewheel)
+
+        def unbind_wheel(event):
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+
+        # Faqat sichqoncha shu canvas ustida bo'lganda g'ildirak ishlasin
+        canvas.bind("<Enter>", bind_wheel)
+        canvas.bind("<Leave>", unbind_wheel)
+
+        return inner
 
     def _open_studio_link(self):
         try:
