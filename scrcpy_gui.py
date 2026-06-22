@@ -118,6 +118,38 @@ def kill_process(exe_name):
     run_hidden(["taskkill", "/F", "/IM", exe_name], timeout=8)
 
 
+def get_process_path(exe_name):
+    """Ishlab turgan jarayonning to'liq .exe yo'lini qaytaradi (Windows).
+    Bu eng ishonchli usul - dastur qayerga o'rnatilganini aniq bilib olamiz."""
+    if os.name != "nt":
+        return None
+    # PowerShell orqali jarayon yo'lini olamiz
+    try:
+        ps_cmd = (
+            f"Get-Process -Name '{exe_name.replace('.exe','')}' -ErrorAction SilentlyContinue "
+            "| Select-Object -First 1 -ExpandProperty Path"
+        )
+        code, out, err = run_hidden(
+            ["powershell", "-NoProfile", "-Command", ps_cmd], timeout=10)
+        path = out.strip()
+        if path and os.path.isfile(path):
+            return path
+    except Exception:
+        pass
+    # Zaxira: wmic orqali
+    try:
+        code, out, err = run_hidden(
+            ["wmic", "process", "where", f"name='{exe_name}'", "get", "ExecutablePath"],
+            timeout=10)
+        for line in out.splitlines():
+            line = line.strip()
+            if line and line.lower().endswith(".exe") and os.path.isfile(line):
+                return line
+    except Exception:
+        pass
+    return None
+
+
 def is_valid_ip_port(text):
     """IP:PORT formatini tekshiradi. Port ko'rsatilmasa, default 5555 qo'shiladi."""
     text = text.strip()
@@ -845,14 +877,43 @@ class IOSTab:
 
         self._build_ui()
 
-        # Ilova ochilganda allaqachon o'rnatilgan uxplay-windows ni qidiramiz.
-        # Topilsa, qayta o'rnatishning oldini olamiz (har safar o'rnatmaslik uchun).
-        found = self._find_installed_exe()
-        if found:
-            self.airplay_exe = found
+        # Ilova ochilganda o'rnatilgan uxplay-windows ni topishga harakat qilamiz.
+        # Tartib: 1) avval saqlangan yo'lni o'qiymiz, 2) topilmasa qidiramiz.
+        # Topilganda yo'lni saqlab qo'yamiz - keyingi safar qaytadan qidirmaymiz.
+        saved = self._load_saved_exe_path()
+        if saved and os.path.isfile(saved):
+            self.airplay_exe = saved
+        else:
+            found = self._find_installed_exe()
+            if found:
+                self.airplay_exe = found
+                self._save_exe_path(found)
 
         # Ishlab turgan-turmaganini tekshiramiz
         self._refresh_running_state()
+
+    def _exe_path_cache_file(self):
+        """O'rnatilgan dastur yo'li saqlanadigan fayl."""
+        return os.path.join(APP_DIR, "airplay_path.txt")
+
+    def _load_saved_exe_path(self):
+        try:
+            path = self._exe_path_cache_file()
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    saved = f.read().strip()
+                if saved and os.path.isfile(saved):
+                    return saved
+        except Exception:
+            pass
+        return None
+
+    def _save_exe_path(self, exe_path):
+        try:
+            with open(self._exe_path_cache_file(), "w", encoding="utf-8") as f:
+                f.write(exe_path)
+        except Exception:
+            pass
 
     def _build_ui(self):
         p = self.parent
@@ -1124,6 +1185,16 @@ class IOSTab:
                 "Birinchi marta ishga tushirilmoqda: AirPlay dasturi tekshirilmoqda...",
                 SUBTEXT_COLOR))
 
+            # Yana bir bor tekshiramiz - allaqachon o'rnatilgan bo'lsa, o'rnatmaymiz
+            already = self._find_installed_exe()
+            if already and os.path.isfile(already):
+                self.airplay_exe = already
+                self._save_exe_path(already)
+                self.root.after(0, lambda: self.set_status(
+                    "Dastur allaqachon o'rnatilgan. Ishga tushirilmoqda...", SUCCESS_COLOR))
+                self._start_airplay()
+                return
+
             # Avval winget orqali o'rnatishga harakat qilamiz - bu eng ishonchli yo'l,
             # chunki winget turli installer formatlarini (msi/exe) avtomatik to'g'ri
             # ishga tushiradi va dasturni Windows'ning standart joyiga o'rnatadi.
@@ -1262,7 +1333,13 @@ class IOSTab:
 
     def _find_installed_exe(self):
         """O'rnatilgan uxplay-windows.exe ni topadi. Bir nechta usul bilan qidiradi:
-        ma'lum papkalar, winget papkalari, Windows registry, Start Menu yorliqlari."""
+        ishlab turgan jarayon, ma'lum papkalar, registry, winget, Start Menu yorliqlari."""
+        # 0) Eng aniq usul: agar dastur HOZIR ishlab tursa, uning yo'lini olamiz
+        for proc_name in ("uxplay-windows.exe", "uxplay.exe"):
+            running_path = get_process_path(proc_name)
+            if running_path and running_path.lower().endswith("uxplay-windows.exe"):
+                return running_path
+
         local_appdata = os.environ.get("LOCALAPPDATA", "")
         program_files = os.environ.get("PROGRAMFILES", "")
         program_files_x86 = os.environ.get("PROGRAMFILES(X86)", "")
@@ -1398,6 +1475,14 @@ class IOSTab:
             self._launch_airplay_exe()
             import time
             time.sleep(3)
+
+            # Dastur ishga tushgach, uning HAQIQIY yo'lini jarayondan olamiz va
+            # saqlaymiz - shunda keyingi safar aniq topamiz, qayta o'rnatmaymiz.
+            real_path = get_process_path("uxplay-windows.exe")
+            if real_path and os.path.isfile(real_path):
+                self.airplay_exe = real_path
+                self._save_exe_path(real_path)
+
             self.root.after(0, self._refresh_running_state)
             self.root.after(0, lambda: self.set_status(
                 f"Tayyor! iPhone/iPad'da Control Center → Screen Mirroring → "
